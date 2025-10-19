@@ -1,0 +1,41 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE and OS clutter
+.DS_Store
+.idea/
+.vscode/
+
+# Logs and reports
+logs/
+*.log
+
+# Experiment outputs
+checkpoints/
+results/
+wandb/
+
+# Persistent inference/training artifacts
+records/*.pkl
+records/*.pt
+
+# Torch / Transformers caches
+*.ckpt
+*.bin
+*.pt
+hf_cache/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
