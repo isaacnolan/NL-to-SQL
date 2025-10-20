@@ -164,10 +164,11 @@ def eval_epoch(args, model, dev_loader, gt_sql_pth, model_sql_path, gt, model_re
             else:
                 encoder_input, encoder_mask, decoder_input, decoder_targets = batch[:4]
 
-            encoder_input = encoder_input
-            encoder_mask = encoder_mask
-            decoder_input = decoder_input
-            decoder_targets = decoder_targets
+            # Move tensors to model device to avoid device mismatch (cpu vs cuda/mps)
+            encoder_input = encoder_input.to(device)
+            encoder_mask = encoder_mask.to(device)
+            decoder_input = decoder_input.to(device)
+            decoder_targets = decoder_targets.to(device)
 
             outputs = model(input_ids=encoder_input, attention_mask=encoder_mask, decoder_input_ids=decoder_input)['logits']
 
