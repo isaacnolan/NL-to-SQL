@@ -28,8 +28,7 @@ results/
 wandb/
 
 # Persistent inference/training artifacts
-records/*.pkl
-records/*.pt
+
 
 # Torch / Transformers caches
 *.ckpt
