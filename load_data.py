@@ -81,12 +81,8 @@ class T5Dataset(Dataset):
             n_examples = min(len(nl_lines), len(sql_lines))
 
         # Prepare decoder start token id (prefer <extra_id_0> if available)
-        try:
-            dec_start = tokenizer.convert_tokens_to_ids('<extra_id_0>')
-            if dec_start is None:
-                dec_start = tokenizer.pad_token_id
-        except Exception:
-            dec_start = tokenizer.pad_token_id
+      
+        dec_start = tokenizer.pad_token_id
         self.decoder_start_token_id = dec_start
 
         inputs = []
@@ -141,27 +137,31 @@ def normal_collate_fn(batch):
     tgt_seqs = [item[1] for item in batch]
     # decoder start id is same for each item; fall back to PAD_IDX
     dec_start = batch[0][2] if len(batch[0]) > 2 else PAD_IDX
+    # use the decoder start token as the pad token for padding/masking so we
+    # are consistent with the tokenizer's pad_token_id when the dataset
+    # supplies decoder_start_token_id == tokenizer.pad_token_id
+    pad_token = dec_start
 
     # pad encoder sequences
     max_enc = max(len(s) for s in enc_seqs)
-    enc_padded = [s + [PAD_IDX] * (max_enc - len(s)) for s in enc_seqs]
+    enc_padded = [s + [pad_token] * (max_enc - len(s)) for s in enc_seqs]
     encoder_ids = torch.tensor(enc_padded, dtype=torch.long)
-    encoder_mask = (encoder_ids != PAD_IDX).long()
+    encoder_mask = (encoder_ids != pad_token).long()
 
     # pad target sequences
     if any(len(s) == 0 for s in tgt_seqs):
         # if any empty (shouldn't happen for train/dev), make them single PAD
-        tgt_seqs = [[PAD_IDX] if len(s) == 0 else s for s in tgt_seqs]
+        tgt_seqs = [[pad_token] if len(s) == 0 else s for s in tgt_seqs]
 
     max_tgt = max(len(s) for s in tgt_seqs)
-    tgt_padded = [s + [PAD_IDX] * (max_tgt - len(s)) for s in tgt_seqs]
+    tgt_padded = [s + [pad_token] * (max_tgt - len(s)) for s in tgt_seqs]
     decoder_targets = torch.tensor(tgt_padded, dtype=torch.long)
 
     # decoder inputs: prepend dec_start and remove last token of target
     decoder_inputs = []
     for s in tgt_seqs:
         inp = [dec_start] + s[:-1]
-        inp = inp + [PAD_IDX] * (max_tgt - len(inp))
+        inp = inp + [pad_token] * (max_tgt - len(inp))
         decoder_inputs.append(inp)
     decoder_inputs = torch.tensor(decoder_inputs, dtype=torch.long)
 
@@ -186,11 +186,12 @@ def test_collate_fn(batch):
     # batch is a list of tuples: (enc_ids, tgt_ids_or_empty, decoder_start_id)
     enc_seqs = [item[0] for item in batch]
     dec_start = batch[0][2] if len(batch[0]) > 2 else PAD_IDX
+    pad_token = dec_start
 
     max_enc = max(len(s) for s in enc_seqs)
-    enc_padded = [s + [PAD_IDX] * (max_enc - len(s)) for s in enc_seqs]
+    enc_padded = [s + [pad_token] * (max_enc - len(s)) for s in enc_seqs]
     encoder_ids = torch.tensor(enc_padded, dtype=torch.long)
-    encoder_mask = (encoder_ids != PAD_IDX).long()
+    encoder_mask = (encoder_ids != pad_token).long()
 
     initial_decoder_inputs = torch.tensor([dec_start for _ in batch], dtype=torch.long)
 

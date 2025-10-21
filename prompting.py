@@ -12,6 +12,12 @@ from load_data import load_prompting_data
 
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu') # you can add mps
 
+# Maximum tokens to generate for each prompt (tunable)
+MAX_NEW_TOKENS = 80
+
+# In-memory store for support examples used to build k-shot prompts
+PROMPT_EXAMPLES = None
+
 
 def get_args():
     '''
@@ -47,7 +53,28 @@ def create_prompt(sentence, k):
         * sentence (str): A text string
         * k (int): Number of examples in k-shot prompting
     '''
-    # TODO
+    global PROMPT_EXAMPLES
+
+    # Basic instruction for the model
+    instruction = (
+        "Translate the following natural language question into an SQL query that can be run\n"
+        "against the flights database. Respond with only the SQL query (no extra text).\n\n"
+    )
+
+    # If no support examples are available, fall back to a simple zero-shot instruction
+    support_text = ""
+    if k > 0 and PROMPT_EXAMPLES:
+        # sample the first k examples (you can change to random.sample for variability)
+        k_clamped = min(k, len(PROMPT_EXAMPLES))
+        for i in range(k_clamped):
+            nl, sql = PROMPT_EXAMPLES[i]
+            support_text += f"Question: {nl}\nSQL: {sql}\n\n"
+
+    # Final query to complete
+    query_text = f"Question: {sentence}\nSQL:"
+
+    prompt = instruction + support_text + query_text
+    return prompt
 
 
 def exp_kshot(tokenizer, model, inputs, k):
@@ -66,27 +93,53 @@ def exp_kshot(tokenizer, model, inputs, k):
     raw_outputs = []
     extracted_queries = []
 
-    for i, sentence in tqdm(enumerate(inputs)):
-        prompt = create_prompt(sentence, k) # Looking at the prompt may also help
+    # inputs is a list of natural language strings
+    for sentence in tqdm(inputs):
+        prompt = create_prompt(sentence, k)
 
-        input_ids = tokenizer(prompt, return_tensors="pt").to(DEVICE)
-        outputs = model.generate(**input_ids, max_new_tokens=MAX_NEW_TOKENS) # You should set MAX_NEW_TOKENS
-        response = tokenizer.decode(outputs[0]) # How does the response look like? You may need to parse it
+        # Tokenize and move tensors to device
+        inputs_enc = tokenizer(prompt, return_tensors="pt", truncation=True)
+        input_ids = inputs_enc["input_ids"].to(DEVICE)
+        attention_mask = inputs_enc.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(DEVICE)
+
+        # Generate (greedy or beam can be set via model.generate kwargs)
+        gen_ids = model.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=MAX_NEW_TOKENS)
+
+        # Decode
+        response = tokenizer.decode(gen_ids[0], skip_special_tokens=True)
         raw_outputs.append(response)
 
-        # Extract the SQL query
+        # Extract the SQL query from the raw output
         extracted_query = extract_sql_query(response)
         extracted_queries.append(extracted_query)
+
     return raw_outputs, extracted_queries
 
 
-def eval_outputs(eval_x, eval_y, gt_sql_pth, model_sql_path, gt_record_path, model_record_path):
+def eval_outputs(generated_queries, eval_y, gt_path, model_path, gt_query_records=None, model_query_records=None):
     '''
-    Evaluate the outputs of the model by computing the metrics.
+    Evaluate a list of generated SQL queries by saving them, computing records, and
+    calling the metric utilities.
 
-    Add/modify the arguments and code as needed.
+    Inputs:
+        * generated_queries (List[str]): Model-generated SQL strings (already post-processed)
+        * eval_y: ground-truth SQLs (unused here, but kept for compatibility)
+        * gt_path: path to ground-truth .sql file
+        * model_path: path where to save generated SQLs
+        * gt_query_records: optional path to precomputed ground-truth records (pickle)
+        * model_query_records: optional path where to save model records (pickle)
     '''
-    # TODO
+    # Save generated queries and compute/save records
+    save_queries_and_records(generated_queries, model_path, model_query_records)
+
+    # Compute metrics
+    sql_em, record_em, record_f1, model_error_msgs = compute_metrics(gt_path, model_path, gt_query_records, model_query_records)
+
+    error_count = sum(1 for m in model_error_msgs if m)
+    error_rate = error_count / max(1, len(model_error_msgs))
+
     return sql_em, record_em, record_f1, model_error_msgs, error_rate
 
 

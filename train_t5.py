@@ -242,6 +242,7 @@ def main():
     resume = False  # set True to resume from checkpoints/<...>/last
     start_epoch = 0
     if resume:
+        print('Resuming from last checkpoint...')
         try:
             model_ckpt, state = load_model_from_checkpoint(args, best=False, map_location=DEVICE, load_optimizer=False)
             model = model_ckpt
@@ -253,6 +254,7 @@ def main():
         except FileNotFoundError:
             print('No checkpoint to resume; starting from scratch.')
     else:
+        print('Starting training from scratch...')
         model = initialize_model(args)
         model.to(DEVICE)
         optimizer, scheduler = initialize_optimizer_and_scheduler(args, model, len(train_loader))
