@@ -201,7 +201,7 @@ def main():
     for eval_split in ["dev", "test"]:
         eval_x, eval_y = (dev_x, dev_y) if eval_split == "dev" else (test_x, None)
 
-        raw_outputs, extracted_queries = exp_kshot(tokenizer, model, eval_x, k)
+        raw_outputs, extracted_queries = exp_kshot(tokenizer, model, eval_x, shot)
 
         # You can add any post-processing if needed
         # You can compute the records with `compute_records``
