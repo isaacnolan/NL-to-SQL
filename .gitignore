@@ -38,3 +38,5 @@ hf_cache/
 
 # Notebook checkpoints
 .ipynb_checkpoints/
+# Data files
+HF.txt
