@@ -206,9 +206,9 @@ def main():
         # You can add any post-processing if needed
         # You can compute the records with `compute_records``
 
-        gt_query_records = f"records/{eval_split}_gt_records.pkl"
+        gt_query_records = f"records/dev_gt_records.pkl"
         gt_sql_path = os.path.join(f'data/{eval_split}.sql')
-        gt_record_path = os.path.join(f'records/{eval_split}_gt_records.pkl')
+        gt_record_path = os.path.join(f'records/ground_truth_dev.pkl')
         model_sql_path = os.path.join(f'results/gemma_{experiment_name}_dev.sql')
         model_record_path = os.path.join(f'records/gemma_{experiment_name}_dev.pkl')
         sql_em, record_em, record_f1, model_error_msgs, error_rate = eval_outputs(
