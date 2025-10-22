@@ -1,4 +1,4 @@
-import os, argparse, random
+import os, argparse, random, json
 from tqdm import tqdm
 
 import torch
@@ -39,11 +39,15 @@ def get_args():
                         help='Random seed to help reproducibility')
     parser.add_argument('--experiment_name', type=str, default='experiment',
                         help="How should we name this experiment?")
+    parser.add_argument('--ablation', action='store_true',
+                        help='Run a set of ablation variants (writes per-variant results)')
+    parser.add_argument('--variant', type=str, default='',
+                        help='Run a single ablation variant by name (overrides --ablation)')
     args = parser.parse_args()
     return args
 
 
-def create_prompt(sentence, k):
+def create_prompt(sentence, k, variant=None):
     '''
     Function for creating a prompt for zero or few-shot prompting.
 
@@ -64,20 +68,33 @@ def create_prompt(sentence, k):
     # If no support examples are available, fall back to a simple zero-shot instruction
     support_text = ""
     if k > 0 and PROMPT_EXAMPLES:
-        # sample the first k examples (you can change to random.sample for variability)
+        # deterministically take the first k examples (you can switch to random.sample for variability)
         k_clamped = min(k, len(PROMPT_EXAMPLES))
-        for i in range(k_clamped):
-            nl, sql = PROMPT_EXAMPLES[i]
+        examples = PROMPT_EXAMPLES[:k_clamped]
+        # simple ablation variants supported by name
+        if variant == 'no_support':
+            examples = []
+        elif variant == 'reverse_examples':
+            examples = list(reversed(examples))
+        elif variant == 'single_example':
+            examples = examples[:1]
+
+        for nl, sql in examples:
             support_text += f"Question: {nl}\nSQL: {sql}\n\n"
 
     # Final query to complete
     query_text = f"Question: {sentence}\nSQL:"
 
-    prompt = instruction + support_text + query_text
+    # Optionally ablate the instruction sentence itself
+    if variant == 'no_instruction':
+        prompt = support_text + query_text
+    else:
+        prompt = instruction + support_text + query_text
+
     return prompt
 
 
-def exp_kshot(tokenizer, model, inputs, k):
+def exp_kshot(tokenizer, model, inputs, k, variant=None):
     '''
     k-shot prompting experiments using the provided model and tokenizer. 
     This function generates SQL queries from text prompts and evaluates their accuracy.
@@ -95,7 +112,7 @@ def exp_kshot(tokenizer, model, inputs, k):
 
     # inputs is a list of natural language strings
     for sentence in tqdm(inputs):
-        prompt = create_prompt(sentence, k)
+        prompt = create_prompt(sentence, k, variant=variant)
 
         # Tokenize and move tensors to device
         inputs_enc = tokenizer(prompt, return_tensors="pt", truncation=True)
@@ -195,39 +212,64 @@ def main():
     data_folder = 'data'
     train_x, train_y, dev_x, dev_y, test_x = load_prompting_data(data_folder)
 
+    # Populate PROMPT_EXAMPLES (pairs of (nl, sql)) for deterministic few-shot support
+    global PROMPT_EXAMPLES
+    PROMPT_EXAMPLES = list(zip(train_x, train_y))
+
     # Model and tokenizer
     tokenizer, model = initialize_model_and_tokenizer(model_name, to_quantize)
 
-    for eval_split in ["dev", "test"]:
-        eval_x, eval_y = (dev_x, dev_y) if eval_split == "dev" else (test_x, None)
+    def run_for_variant(variant_name):
+        for eval_split in ["dev", "test"]:
+            eval_x, eval_y = (dev_x, dev_y) if eval_split == "dev" else (test_x, None)
 
-        raw_outputs, extracted_queries = exp_kshot(tokenizer, model, eval_x, shot)
+            raw_outputs, extracted_queries = exp_kshot(tokenizer, model, eval_x, shot, variant=variant_name)
 
         # You can add any post-processing if needed
         # You can compute the records with `compute_records``
 
-        gt_query_records = f"records/dev_gt_records.pkl"
-        gt_sql_path = os.path.join(f'data/{eval_split}.sql')
-        gt_record_path = os.path.join(f'records/ground_truth_dev.pkl')
-        model_sql_path = os.path.join(f'results/gemma_{experiment_name}_dev.sql')
-        model_record_path = os.path.join(f'records/gemma_{experiment_name}_dev.pkl')
-        sql_em, record_em, record_f1, model_error_msgs, error_rate = eval_outputs(
-            eval_x, eval_y,
-            gt_path=gt_sql_path,
-            model_path=model_sql_path,
-            gt_query_records=gt_query_records,
-            model_query_records=model_record_path
-        )
-        print(f"{eval_split} set results: ")
-        print(f"Record F1: {record_f1}, Record EM: {record_em}, SQL EM: {sql_em}")
-        print(f"{eval_split} set results: {error_rate*100:.2f}% of the generated outputs led to SQL errors")
+            gt_query_records = f"records/{eval_split}_gt_records.pkl"
+            gt_sql_path = os.path.join(f'data/{eval_split}.sql')
+            model_sql_path = os.path.join(f'results/gemma_{experiment_name}_{variant_name or 'base'}_{eval_split}.sql')
+            model_record_path = os.path.join(f'records/gemma_{experiment_name}_{variant_name or 'base'}_{eval_split}.pkl')
+            sql_em, record_em, record_f1, model_error_msgs, error_rate = eval_outputs(
+                raw_outputs, eval_y,
+                gt_path=gt_sql_path,
+                model_path=model_sql_path,
+                gt_query_records=gt_query_records,
+                model_query_records=model_record_path
+            )
+            print(f"{eval_split} set results: ")
+            print(f"Record F1: {record_f1}, Record EM: {record_em}, SQL EM: {sql_em}")
+            print(f"{eval_split} set results: {error_rate*100:.2f}% of the generated outputs led to SQL errors")
 
-        # Save results
-        # You can for instance use the `save_queries_and_records` function
+            # Save per-variant summary JSON
+            os.makedirs('results', exist_ok=True)
+            summary = {
+                'variant': variant_name or 'base',
+                'eval_split': eval_split,
+                'record_f1': record_f1,
+                'record_em': record_em,
+                'sql_em': sql_em,
+                'error_rate': error_rate,
+            }
+            summary_path = os.path.join('results', f'summary_{experiment_name}_{variant_name or 'base'}_{eval_split}.json')
+            with open(summary_path, 'w') as sf:
+                json.dump(summary, sf, indent=2)
 
-        # Save logs, if needed
-        log_path = "" # to specify
-        save_logs(log_path, sql_em, record_em, record_f1, model_error_msgs)
+    # Run either a single variant or a suite of ablations
+    if args.variant:
+        run_for_variant(args.variant)
+    elif args.ablation:
+        variants = ['base', 'no_support', 'no_instruction', 'reverse_examples', 'single_example']
+        for v in variants:
+            run_for_variant(v if v != 'base' else '')
+    else:
+        run_for_variant('')
+
+    # Save logs, if needed (placeholder)
+    log_path = ""
+    # save_logs(log_path, sql_em, record_em, record_f1, model_error_msgs)
 
 
 if __name__ == "__main__":

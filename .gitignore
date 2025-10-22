@@ -12,6 +12,7 @@ dist/
 venv/
 env/
 ENV/
+.env
 
 # IDE and OS clutter
 .DS_Store
