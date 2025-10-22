@@ -1,0 +1,1 @@
+python evaluate.py --predicted_sql results/gemma_Initial_Test_dev.sql --predicted_records records/gemma_Initial_Test_dev.pkl --development_sql data/dev.sql --development_records records/ground_truth_dev.pkl

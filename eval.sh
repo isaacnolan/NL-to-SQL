@@ -1,0 +1,1 @@
+python evaluate.py --predicted_sql results/t5_ft_experiment_dev.sql --predicted_records records/t5_ft_experiment_dev.pkl --development_sql data/dev.sql --development_records records/ground_truth_dev.pkl
