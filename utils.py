@@ -67,13 +67,21 @@ def save_queries_and_records(sql_queries: List[str], sql_path: str, record_path:
         * sql_path (str): Path to save SQL queries
         * record_path (str): Path to save database records associated with queries
     '''
+    # Ensure parent directories exist
+    sql_dir = os.path.dirname(sql_path)
+    if sql_dir:
+        os.makedirs(sql_dir, exist_ok=True)
+    rec_dir = os.path.dirname(record_path)
+    if rec_dir:
+        os.makedirs(rec_dir, exist_ok=True)
+
     # First save the queries
     with open(sql_path, 'w') as f:
         for query in sql_queries:
             f.write(f'{query}\n')
 
     # Next compute and save records
-    records, error_msgs = compute_records(sql_queries)    
+    records, error_msgs = compute_records(sql_queries)
     with open(record_path, 'wb') as f:
         pickle.dump((records, error_msgs), f)
 

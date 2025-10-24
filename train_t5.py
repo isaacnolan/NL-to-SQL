@@ -1,5 +1,6 @@
 import os
 import argparse
+import pickle
 from tqdm import tqdm
 
 import torch
@@ -10,7 +11,7 @@ import wandb
 from t5_utils import initialize_model, initialize_optimizer_and_scheduler, save_model, load_model_from_checkpoint, setup_wandb
 from transformers import GenerationConfig
 from load_data import load_t5_data
-from utils import compute_metrics, save_queries_and_records
+from utils import compute_metrics, save_queries_and_records, compute_records
 
 # ...existing code...
 if torch.cuda.is_available():
@@ -218,7 +219,44 @@ def test_inference(args, model, test_loader, model_sql_path, model_record_path):
     You must implement inference to compute your model's generated SQL queries and its associated 
     database records. Implementation should be very similar to eval_epoch.
     '''
-    pass
+    model.eval()
+
+    device = DEVICE
+    tokenizer = test_loader.dataset.tokenizer
+    generated_queries = []
+
+    with torch.no_grad():
+        for batch in tqdm(test_loader):
+            if len(batch) == 3:
+                encoder_input, encoder_mask, _ = batch
+            else:
+                encoder_input, encoder_mask = batch[0], batch[1]
+
+            encoder_input = encoder_input.to(device)
+            encoder_mask = encoder_mask.to(device)
+
+            gen_ids = model.generate(
+                input_ids=encoder_input,
+                attention_mask=encoder_mask,
+                max_new_tokens=200,
+            )
+            decoded = tokenizer.batch_decode(gen_ids, skip_special_tokens=True)
+            generated_queries.extend(d.strip() for d in decoded)
+
+    os.makedirs(os.path.dirname(model_sql_path), exist_ok=True)
+    os.makedirs(os.path.dirname(model_record_path), exist_ok=True)
+
+    # Save queries and records, and compute inference-time SQL error rate
+    records, error_msgs = compute_records(generated_queries)
+    with open(model_sql_path, 'w') as f:
+        for query in generated_queries:
+            f.write(f"{query}\n")
+    with open(model_record_path, 'wb') as f:
+        pickle.dump((records, error_msgs), f)
+
+    error_count = sum(1 for msg in error_msgs if msg)
+    error_rate = error_count / max(1, len(error_msgs))
+    print(f"Test inference complete. {error_rate*100:.2f}% of generated outputs led to SQL errors")
 
 def main():
     # Get key arguments
@@ -239,12 +277,12 @@ def main():
     os.makedirs(checkpoint_dir, exist_ok=True)
 
      # Optionally resume from last checkpoint (control via CLI if you want)
-    resume = False  # set True to resume from checkpoints/<...>/last
+    resume = True  # set True to resume from checkpoints/<...>/last
     start_epoch = 0
     if resume:
         print('Resuming from last checkpoint...')
         try:
-            model_ckpt, state = load_model_from_checkpoint(args, best=False, map_location=DEVICE, load_optimizer=False)
+            model_ckpt, state = load_model_from_checkpoint(args, best=True, map_location=DEVICE, load_optimizer=False)
             model = model_ckpt
             optimizer, scheduler = initialize_optimizer_and_scheduler(args, model, len(train_loader))
             model.to(DEVICE)
@@ -254,13 +292,13 @@ def main():
         except FileNotFoundError:
             print('No checkpoint to resume; starting from scratch.')
     else:
-        print('Starting training from scratch...')
+        print('Starting training without checkpoint...')
         model = initialize_model(args)
         model.to(DEVICE)
         optimizer, scheduler = initialize_optimizer_and_scheduler(args, model, len(train_loader))
     print('Loaded Model')
     # Train 
-    train(args, model, train_loader, dev_loader, optimizer, scheduler)
+    #train(args, model, train_loader, dev_loader, optimizer, scheduler)
 
     # Evaluate
     #model = load_model_from_checkpoint(args, best=True)
