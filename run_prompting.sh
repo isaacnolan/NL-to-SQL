@@ -1,6 +1,6 @@
 #!/bin/bash
-
-for k in {1..10}
+for k in {2..3}
 do
-    python prompting.py --experiment_name K_Shots_${k} --shot ${k}
+    TS=$(date "+%Y%m%d_%H%M%S")
+    python prompting.py --experiment_name K_Shots_Latest2${k}_${TS} --shot ${k} --model gemma --quantization
 done

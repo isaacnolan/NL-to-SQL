@@ -4,9 +4,9 @@
 #SBATCH --ntasks-per-node=28
 #SBATCH --gpus-per-node=1
 #SBATCH --gpu_cmode=shared
-#SBATCH --time=08:00:00
+#SBATCH --time=01:00:00
 #SBATCH --account=PAS3150
-#SBATCH --partition=nextgen
+#SBATCH --partition=debug-nextgen   # fastest queue right now
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64GB
 #SBATCH --mail-type=ALL
